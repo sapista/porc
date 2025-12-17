@@ -57,7 +57,8 @@ from scipy.io import wavfile
 from scipy.signal import convolve as conv
 from scipy.stats import kurtosis
 from scipy.stats import norm as Gaussian
-from scipy import nanstd
+#from scipy import nanstd #nanstd is now in numpy
+from numpy  import nanstd
 import matplotlib.pyplot as plt
 
 # PORC source files
@@ -71,13 +72,13 @@ import warnings; warnings.filterwarnings('ignore')
 # MiniDSP's OpenDRC box likes 6144 taps
 
 def rceps(x): 
-	y = sp.real(ifft(sp.log(sp.absolute(fft(x)))))
-	n = len(x) 
+	y = np.real(ifft(np.log(np.absolute(fft(x)))))
+	n = len(x)
 	if (n%2) == 1:
-		ym = np.hstack((y[0], 2*y[1:n/2], np.zeros(n/2-1)))
+		ym = np.hstack((y[0], 2*y[1:int(n/2)], np.zeros(int(n/2-1))))
 	else:
-		ym = np.hstack((y[0], 2*y[1:n/2], y[n/2+1], np.zeros(n/2-1)))
-	ym = sp.real(ifft(sp.exp(fft(ym)))) 
+		ym = np.hstack((y[0], 2*y[1:int(n/2)], y[int(n/2+1)], np.zeros(int(n/2-1))))
+	ym = np.real(ifft(np.exp(fft(ym)))) 
 	return (y, ym)
     
 def parfilt(Bm, Am, FIR, x):
@@ -99,7 +100,7 @@ def mad(a, c=Gaussian.ppf(3/4.), axis=0):  # c \approx .6745
     a = np.asarray(a)
     return np.median((np.fabs(a))/c, axis=axis)
     
-def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthresh, noplot):
+def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthresh, noplot, lowcut, highcut):
 
   print("Loading impulse response")
   
@@ -127,8 +128,8 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   ## Logarithmic pole positioning
   ###
 
-  fplog = np.hstack((sp.logspace(sp.log10(20.), sp.log10(200.), 14.), sp.logspace(sp.log10(250.), 
-             sp.log10(20000.), 13.))) 
+  fplog = np.hstack((np.logspace(np.log10(20.), np.log10(200.), 14), np.logspace(np.log10(250.), 
+             np.log10(20000.), 13))) 
   plog = freqpoles(fplog, Fs)
 
   ###
@@ -159,7 +160,8 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
     frq = t[:,0]; pwr = t[:,1]
     
     # calculate the FIR filter via windowing method
-    fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), nyq = frq[-1])	
+    #fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), nyq = frq[-1])
+    fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), fs = 2*frq[-1])	
     # Minimum phase, zero padding	
     cp, outf = rceps(np.append(fir, np.zeros(len(minresp) - len(fir))))
       
@@ -177,10 +179,28 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   # Equalizer impulse response - filtering a unit pulse
   equalizer = norm(parfilt(Bm, Am, FIR, imp))
 
+  # High pass the equalizer IR to limit DC gain
+  # Design a high-pass Butterworth filter
+  soshpf = sig.butter(6, [lowcut, highcut], 'bandpass', fs=Fs, output='sos')
+  # Apply the filter to the signal
+  #equalizer = sig.sosfiltfilt(soshpf, equalizer) #Forward-Backward is not working here!
+  equalizer = sig.sosfilt(soshpf, equalizer)
+ 
+  
   # Windowing with a half hanning window in time domain
   han = np.hanning(ntaps*2)[-ntaps:]
   equalizer = han * equalizer[:ntaps]
 
+  # Mean centering, not sure about this
+  #linSqrMean = np.sqrt(np.sum(np.square(equalizer)))
+  #print("\n######EQ RMS = ", linSqrMean)
+  #print("\n######EQ RMS_dB = ", 10.0*np.log10( linSqrMean))
+  #print("\n######EQ t0 = ", equalizer[0])
+  #print("\n######EQ t0_dB = ", 20.0*np.log10( equalizer[0]))
+  #equalizer[0] should be the same as Frequency average
+  #equalizer = 10.0*equalizer / equalizer[0]
+  
+  
   ###
   ## Mixed-phase compensation
   ## Based on the paper "Mixed Time-Frequency approach for Multipoint
@@ -198,21 +218,21 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
     hop_size = 0.024
     samples = hop_size * Fs
 
-    bins = np.int(np.ceil(len(hp) / samples))
+    bins = int(np.ceil(len(hp) / samples))
 
     tmix = 0
 
     # Kurtosis method
     for b in range(bins):
-      start = np.int(b * samples)
-      end = np.int((b+1) * samples)
+      start = int(b * samples)
+      end = int((b+1) * samples)
       k = kurtosis(hp[start:end])
       if k <= 0:
         tmix = b * hop_size
         break
 
     # truncate the prototype function
-    taps = np.int(tmix*Fs)
+    taps = int(tmix*Fs)
 
     print("\nmixing time(secs) = ", tmix, "; taps = ", taps)
     
@@ -364,11 +384,15 @@ def main():
 	parser.add_argument('--trim', action='store_true', default = False,
 					help="Trim leading silence")
 	parser.add_argument('--noplot', action='store_true', default = False,
-					help="Do not polt the filter") 	 					  
+					help="Do not polt the filter")
+	parser.add_argument("--lowcut", dest="lowcut", default = 10.0,
+					help="High pass eq curve Frequency. Default = 10 Hz", type=float)
+	parser.add_argument("--highcut", dest="highcut", default = 20e3,
+					help="Low pass eq curve Frequency. Default = 20 kHz", type=float)
 
 	args = parser.parse_args()
 
-	roomcomp(args.impresp, args.filter, args.target, args.ntaps, args.mixed, args.opformat, args.trim, args.nsthresh, args.noplot)
+	roomcomp(args.impresp, args.filter, args.target, args.ntaps, args.mixed, args.opformat, args.trim, args.nsthresh, args.noplot, args.lowcut, args.highcut)
 
 if __name__=="__main__":
     main()  
