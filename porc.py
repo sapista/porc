@@ -63,7 +63,7 @@ import matplotlib.pyplot as plt
 
 # PORC source files
 from parfiltid import parfiltid
-from tfplot import tfplot, tfplots, debug_log_plot
+from tfplot import tfplot, tfplots, debug_log_plot, ir_compplot
 from freqpoles import freqpoles
 
 # Ignore warnings
@@ -80,14 +80,14 @@ def rceps(x):
 		ym = np.hstack((y[0], 2*y[1:int(n/2)], y[int(n/2+1)], np.zeros(int(n/2-1))))
 	ym = np.real(ifft(np.exp(fft(ym)))) 
 	return (y, ym)
-    
+
 def parfilt(Bm, Am, FIR, x):
     y = np.zeros(x.size)
     for k in range(Am.shape[1]):
         y += np.ravel(sig.lfilter(Bm[:,k], Am[:,k], x))
     y += np.ravel(sig.lfilter(np.hstack([FIR]), np.hstack([1]), x))
     return y
-    
+
 # Normalize signal
 def norm(y): return y/np.fabs(y).max()
 
@@ -99,13 +99,14 @@ def dB2Mag(dB):
 def mad(a, c=Gaussian.ppf(3/4.), axis=0):  # c \approx .6745
     a = np.asarray(a)
     return np.median((np.fabs(a))/c, axis=axis)
-    
-def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthresh, noplot, lowcut, highcut):
+
+def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, trim, nsthresh, noplot, lowfreq, highfreq):
 
   print("Loading impulse response")
   
   # Read impulse response
   Fs, data = wavfile.read(impresp)
+  data_raw = np.hstack(data)
   data = norm(np.hstack(data))
 
 
@@ -128,8 +129,7 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   ## Logarithmic pole positioning
   ###
 
-  fplog = np.hstack((np.logspace(np.log10(20.), np.log10(200.), 14), np.logspace(np.log10(250.), 
-             np.log10(20000.), 13))) 
+  fplog = np.hstack((np.logspace(np.log10(lowfreq), np.log10(200.), 14), np.logspace(np.log10(250.), np.log10(highfreq), 13)))
   plog = freqpoles(fplog, Fs)
 
   ###
@@ -148,23 +148,24 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   db = []
 
   if target == 'flat':
-    
+
     # Make the target output a bandpass filter
     Bf, Af = sig.butter(4, 30/(Fs/2), 'high')
-    outf = sig.lfilter(Bf, Af, imp) 
-    
+    outf = sig.lfilter(Bf, Af, imp)
+
   else:
-    
+
     # load target file
     t = np.loadtxt(target)
     frq = t[:,0]; pwr = t[:,1]
-    
+
     # calculate the FIR filter via windowing method
     #fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), nyq = frq[-1])
-    fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), fs = 2*frq[-1])	
-    # Minimum phase, zero padding	
+    fir = sig.firwin2(501, frq, np.power(10, pwr/20.0), fs = 2*frq[-1])
+
+    # Minimum phase, zero padding
     cp, outf = rceps(np.append(fir, np.zeros(len(minresp) - len(fir))))
-      
+
   ###
   ## Filter design
   ###
@@ -179,28 +180,10 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   # Equalizer impulse response - filtering a unit pulse
   equalizer = norm(parfilt(Bm, Am, FIR, imp))
 
-  # High pass the equalizer IR to limit DC gain
-  # Design a high-pass Butterworth filter
-  soshpf = sig.butter(6, [lowcut, highcut], 'bandpass', fs=Fs, output='sos')
-  # Apply the filter to the signal
-  #equalizer = sig.sosfiltfilt(soshpf, equalizer) #Forward-Backward is not working here!
-  equalizer = sig.sosfilt(soshpf, equalizer)
- 
-  
   # Windowing with a half hanning window in time domain
   han = np.hanning(ntaps*2)[-ntaps:]
   equalizer = han * equalizer[:ntaps]
 
-  # Mean centering, not sure about this
-  #linSqrMean = np.sqrt(np.sum(np.square(equalizer)))
-  #print("\n######EQ RMS = ", linSqrMean)
-  #print("\n######EQ RMS_dB = ", 10.0*np.log10( linSqrMean))
-  #print("\n######EQ t0 = ", equalizer[0])
-  #print("\n######EQ t0_dB = ", 20.0*np.log10( equalizer[0]))
-  #equalizer[0] should be the same as Frequency average
-  #equalizer = 10.0*equalizer / equalizer[0]
-  
-  
   ###
   ## Mixed-phase compensation
   ## Based on the paper "Mixed Time-Frequency approach for Multipoint
@@ -209,7 +192,7 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
   ## the leading zeros removed.
   ###
   if mixed_phase is True:
-    
+
     # prototype function
     hp = norm(np.real(equalizedresp))
 
@@ -235,7 +218,7 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
     taps = int(tmix*Fs)
 
     print("\nmixing time(secs) = ", tmix, "; taps = ", taps)
-    
+
     if taps > 0:
       # Time reverse the array
       h = hp[:taps][::-1]
@@ -246,22 +229,29 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
       mixed = np.power(10, np.real(H)/20.0)
       # create filter's impulse response
       mixed = np.real(ifft(mixed))
-      
+
       # convolve and window to desired length
       equalizer = conv(equalizer, mixed)
       equalizer = han * equalizer[:ntaps]
-      
+
       #data = han * data[:ntaps]
       #eqresp = np.real(conv(equalizer, data))
     else:
       print("zero taps; skipping mixed-phase computation")
-  if opformat in ('wav', 'wav24'):      
+
+  # calculate output IR
+  outimpulseresp = sp.signal.convolve(data_raw, equalizer)
+
+  if opformat in ('wav', 'wav24'):
   # Write data
     wavwrite_24(filter, Fs, norm(np.real(equalizer)))
     print('\nOutput format is wav24')
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
-	
+
+    wavwrite_24(imprespout, Fs, outimpulseresp)
+    print('Output IR written to ' + imprespout)
+
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
     print("or to merge left and right channels into a stereo .wav")
     print("\nExample: sox leq48.wav -t f32 leq48.bin")
@@ -272,12 +262,30 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
     print('\nOutput format is wav32')
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
+
+    wavwrite_32(imprespout, Fs, norm(np.real(outimpulseresp)))
+    print('Output IR written to ' + imprespout)
+
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
     print("or to merge left and right channels into a stereo .wav")
     print("\nExample: sox leq48.wav -t f32 leq48.bin")
     print("         sox -M le148.wav req48.wav output.wav\n")
+
+  elif opformat == 'wavfloat':
+    wavwrite_float(filter, Fs, norm(np.real(equalizer)))
+    print('\nOutput format is wav32')
+    print('Output filter length =', len(equalizer), 'taps')
+    print('Output filter written to ' + filter)
+
+    wavwrite_float(imprespout, Fs, outimpulseresp)
+    print('Output IR written to ' + imprespout)
+
+    print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
+    print("or to merge left and right channels into a stereo .wav")
+    print("\nExample: sox -M le148.wav req48.wav output.wav\n")
+
   elif opformat == 'bin':
-    # direct output to bin avoids float64->pcm16->float32 conversion by going direct 
+    # direct output to bin avoids float64->pcm16->float32 conversion by going direct
     #float64->float32
     f = open(filter, 'wb')
     norm(np.real(equalizer)).astype('float32').tofile(f)
@@ -326,6 +334,9 @@ def roomcomp(impresp, filter, target, ntaps, mixed_phase, opformat, trim, nsthre
     plt.legend()
     plt.show()
 
+    #Impulse comparison plot
+    ir_compplot(data, equalizer, Fs = Fs)
+
 def wavwrite_24(fname, fs, data):
     data_as_bytes = (struct.pack('<i', int(samp*(2**23-1))) for samp in data)
     with closing(wave.open(fname, 'wb')) as wavwriter:
@@ -334,7 +345,7 @@ def wavwrite_24(fname, fs, data):
         wavwriter.setframerate(fs)
         for data_bytes in data_as_bytes:
             wavwriter.writeframes(data_bytes[0:3])
-            
+
 def wavwrite_32(fname, fs, data):
     data_as_bytes = (struct.pack('<i', int(samp*(2**31-1))) for samp in data)
     with closing(wave.open(fname, 'wb')) as wavwriter:
@@ -343,9 +354,12 @@ def wavwrite_32(fname, fs, data):
         wavwriter.setframerate(fs)
         for data_bytes in data_as_bytes:
             wavwriter.writeframes(data_bytes[0:4])
+
+def wavwrite_float(fname, fs, data):
+    wavfile.write(fname, fs, data.astype(np.float32))
 			
 def main():
-    
+
 	print()
 
 	mtxt = textwrap.dedent('''\
@@ -369,6 +383,7 @@ def main():
 	# Positionals
 	parser.add_argument('impresp', metavar='I', type=str, help='mesaured impulse response')
 	parser.add_argument('filter', metavar='F', type=str, help='output filter file name')
+	parser.add_argument('imprespout', metavar='O', type=str, help='output impulse response file name')
 
 	# Options
 	parser.add_argument("-t", dest="target", default='flat',
@@ -378,21 +393,21 @@ def main():
 	parser.add_argument('--mixed', action='store_true', default = False,
 					  help="Implement mixed-phase compensation. see README for details") 
 	parser.add_argument("-o", dest="opformat", default = 'bin',
-					help="Output file type, default bin optional wav", type=str)   
+					help="Output file type, default bin optional wav, wav32 or wavfloat", type=str)
 	parser.add_argument("-s", dest="nsthresh", default = 0.005,
 					help="Normalized silence threshold. Default = 0.05", type=float)                    
 	parser.add_argument('--trim', action='store_true', default = False,
 					help="Trim leading silence")
 	parser.add_argument('--noplot', action='store_true', default = False,
 					help="Do not polt the filter")
-	parser.add_argument("--lowcut", dest="lowcut", default = 10.0,
-					help="High pass eq curve Frequency. Default = 10 Hz", type=float)
-	parser.add_argument("--highcut", dest="highcut", default = 20e3,
-					help="Low pass eq curve Frequency. Default = 20 kHz", type=float)
+	parser.add_argument("--minfreq", dest="minfreq", default = 10.0,
+					help="Lower target curve frequency. Default = 50 Hz", type=float)
+	parser.add_argument("--maxfreq", dest="maxfreq", default = 20e3,
+					help="Upper target curve frequency. Default = 10 kHz", type=float)
 
 	args = parser.parse_args()
 
-	roomcomp(args.impresp, args.filter, args.target, args.ntaps, args.mixed, args.opformat, args.trim, args.nsthresh, args.noplot, args.lowcut, args.highcut)
+	roomcomp(args.impresp, args.filter, args.imprespout, args.target, args.ntaps, args.mixed, args.opformat, args.trim, args.nsthresh, args.noplot, args.minfreq, args.maxfreq)
 
 if __name__=="__main__":
-    main()  
+    main()

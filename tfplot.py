@@ -171,3 +171,21 @@ def debug_log_plot(x, y):
 	plt.grid()
 	plt.legend()
 	plt.show()
+
+def ir_compplot(data, h,  Fs = 44100):
+    t = np.arange(0, (1/Fs) * len(data), 1/Fs)
+    result = sp.signal.convolve(data, h)
+    result = result[:len(t)]
+
+    #RMS normalize
+    dataRMS = np.sqrt(np.sum(np.square(data)))
+    resultRMS = np.sqrt(np.sum(np.square(result)))
+
+    plt.plot(t, data/dataRMS, color='b')
+    plt.plot(t, result/resultRMS, color='r', alpha=0.5)
+    plt.grid()
+    plt.margins(x=0)
+    plt.xlabel('Time')
+    plt.ylabel('IR')
+    plt.title('Impulse Plot')
+    plt.show()

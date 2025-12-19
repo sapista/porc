@@ -1,6 +1,18 @@
 Python Open Room Correction (PORC)
 ==================================
 
+Fork details
+============
+
+This is a fork of the great PORC program to make it compatible with Python 3 and newer versions of numpy+scipy.
+
+This fork also included new arguments to better control the min and max target frequencies in order to avoid overcompensating the eq for frequencies outside the speaker range. This should avoid too much gain in the lows and highs, which is potentially harmful for the speaker drivers.
+
+This fork also added the 'wavfloat' output format to export the eq coefficients as a 32-bits float wav file.
+
+Original info
+=============
+
 PORC now includes mixed-phase compensation (see below)!
 
 DSP Loudspeaker-Room correction filter wizard; transfer function modeling and equalization 
