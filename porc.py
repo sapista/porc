@@ -183,6 +183,11 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
   # Windowing with a half hanning window in time domain
   han = np.hanning(ntaps*2)[-ntaps:]
   equalizer = han * equalizer[:ntaps]
+  equalizer_minphase = equalizer #Backup min-phase eq
+
+  # Calculate min-phase impulse response
+  imprespoutminphase = sp.signal.convolve(data_raw, equalizer)
+  imprespoutmixed = np.zeros((len(imprespoutminphase),))
 
   ###
   ## Mixed-phase compensation
@@ -236,11 +241,12 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
 
       #data = han * data[:ntaps]
       #eqresp = np.real(conv(equalizer, data))
+
+      # calculate output IR
+      imprespoutmixed = sp.signal.convolve(data_raw, equalizer)
+
     else:
       print("zero taps; skipping mixed-phase computation")
-
-  # calculate output IR
-  outimpulseresp = sp.signal.convolve(data_raw, equalizer)
 
   if opformat in ('wav', 'wav24'):
   # Write data
@@ -249,7 +255,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
 
-    wavwrite_24(imprespout, Fs, outimpulseresp)
+    wavwrite_24(imprespout, Fs, imprespoutmixed)
     print('Output IR written to ' + imprespout)
 
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
@@ -263,7 +269,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
 
-    wavwrite_32(imprespout, Fs, norm(np.real(outimpulseresp)))
+    wavwrite_32(imprespout, Fs, norm(np.real(imprespoutmixed)))
     print('Output IR written to ' + imprespout)
 
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
@@ -277,7 +283,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
 
-    wavwrite_float(imprespout, Fs, outimpulseresp)
+    wavwrite_float(imprespout, Fs, imprespoutmixed)
     print('Output IR written to ' + imprespout)
 
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
@@ -300,42 +306,51 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
   ## Plots
   ###
   if not noplot:
-    data *= 500
-    # original loudspeaker-room response
-    tfplot(data, Fs, avg = 'abs')
-    # 1/3 Octave smoothed
-    tfplots(data, Fs, 'r')
+    fig1 = plt.figure(figsize=(1980 / 100.0, 1280 / 100.0), dpi=100.0)
 
-    #tfplot(mixed, Fs, 'r')
+    # original loudspeaker-room response
+    ax11 = fig1.add_subplot(3, 3, 1)
+    ax12 = fig1.add_subplot(3, 3, 2)
+    ax13 = fig1.add_subplot(3, 3, 3)
+    tfplot(data_raw, axMag=ax11, axPhase=ax12, axGrpDly=ax13, Fs=Fs, avg = 'abs', plt_params_dict={'color' : 'b', 'alpha' : 0.4})
+    # 1/3 Octave smoothed
+    tfplots(ax11, data_raw, Fs, 'b')
+    ax11.title.set_text('Unequalized room response (Mag.)')
+    ax12.title.set_text('Unequalized room response (Angle)')
+    ax13.title.set_text('Unequalized room response (Grp.Delay)')
 
     # equalizer transfer function
-    tfplot(0.75*equalizer, Fs, 'g')
-    # indicating pole frequencies
-    plt.vlines(fplog, -2, 2, color='k', linestyles='solid')
+    ax21 = fig1.add_subplot(3, 3, 4)
+    ax22 = fig1.add_subplot(3, 3, 5)
+    ax23 = fig1.add_subplot(3, 3, 6)
+    tfplot(equalizer_minphase, axMag=ax21, axPhase=ax22, axGrpDly=ax23, Fs=Fs, plt_params_dict={'color': 'b', 'label' : 'min-phase'})
+    tfplot(equalizer, axMag=ax21, axPhase=ax22, axGrpDly=ax23, Fs=Fs, plt_params_dict={'color' : 'g', 'label' : 'mixed-phase'})
+	# indicating pole frequencies
+    ax21.vlines(fplog, -2, 2, color='k', linestyles='solid')
+    ax21.title.set_text('Equalizer transfer function (Mag.)')
+    ax22.title.set_text('Equalizer transfer function (Angle)')
+    ax23.title.set_text('Equalizer transfer function (Grp.Delay)')
 
-    # equalized loudspeaker-room response
-    tfplot(equalizedresp*0.01, Fs, avg = 'abs')
+    # Real equalized loudspeaker-room response
+    ax31 = fig1.add_subplot(3, 3, 7)
+    ax32 = fig1.add_subplot(3, 3, 8)
+    ax33 = fig1.add_subplot(3, 3, 9)
+    tfplot(imprespoutminphase, axMag=ax31, axPhase=ax32, axGrpDly=ax33, Fs=Fs, avg='abs', plt_params_dict={'color': 'tab:orange', 'label': 'min-phase', 'alpha': 0.4})
+    if mixed_phase is True:
+      tfplot(imprespoutmixed , axMag=ax31, axPhase=ax32, axGrpDly=ax33,  Fs = Fs, avg = 'abs', plt_params_dict={'color' : 'tab:blue', 'label' : 'mixed-phase', 'alpha' : 0.4})
     # 1/3 Octave smoothed
-    tfplots(equalizedresp*0.01, Fs, 'r')
+    tfplots(ax31, imprespoutminphase, Fs, color='tab:orange')
+    if mixed_phase is True:
+      tfplots(ax31, imprespoutmixed, Fs, color= 'tab:blue')
+    ax31.title.set_text('Equalized room response (Mag.)')
+    ax32.title.set_text('Equalized room response (Angle)')
+    ax33.title.set_text('Equalized room response (Grp.Delay)')
 
-    # Add labels
-    # May need to reposition these based on input data
-    plt.text(325,30,'Unequalized loudspeaker-room response')
-    plt.text(100,-15,'Equalizer transfer function')
-    plt.text(100,-21,'(Black lines: pole locations)')
-    plt.text(130,-70,'Equalized loudspeaker-room response')
-
-    a = plt.gca()
-    a.set_xlim([20, 20000])
-    a.set_ylim([-80, 80])
-    plt.ylabel('Amplitude (dB)', color='b')
-    plt.xlabel('Frequency (Hz)')
-    plt.grid()
-    plt.legend()
+    fig1.tight_layout(h_pad=2)
     plt.show()
 
     #Impulse comparison plot
-    ir_compplot(data, equalizer, Fs = Fs)
+    ir_compplot(data_raw, imprespoutminphase, imprespoutmixed, Fs = Fs)
 
 def wavwrite_24(fname, fs, data):
     data_as_bytes = (struct.pack('<i', int(samp*(2**23-1))) for samp in data)

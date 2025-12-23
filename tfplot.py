@@ -68,7 +68,7 @@ def fftfilt(b, x):
 	## Final cleanups: Both x and b are real; y should also be
 	return np.real(y)
 	
-def tfplots(data, Fs = 44100, color = 'b', fract=3):
+def tfplots(ax, data, Fs = 44100, color = 'b', fract=3):
 
 	octbin = 100.
 	FFTSIZE = 2**18
@@ -116,9 +116,9 @@ def tfplots(data, Fs = 44100, color = 'b', fract=3):
 	smoothmagn = np.sqrt(tmp[int(HL/2):int(HL/2+L)]/hh.sum(axis=0))
 
 	# plotting
-	plt.semilogx(logscale, 20*np.log10(smoothmagn), color)
+	ax.semilogx(logscale, 20*np.log10(smoothmagn), color)
 
-def tfplot(data, Fs = 44100, color = 'b', octbin = 100, avg = 'comp'):
+def tfplot(data, axMag, axPhase=None, axGrpDly=None, Fs = 44100, octbin = 100, avg = 'comp', plt_params_dict = {},):
 
 	FFTSIZE=2**18
 
@@ -135,6 +135,7 @@ def tfplot(data, Fs = 44100, color = 'b', octbin = 100, avg = 'comp'):
 	compamp = tf[:int(FFTSIZE/2)]
 
 	logmagn = np.empty(int(LOGN))
+	logangle = np.empty(int(LOGN))
 	fstep = Fs/np.float64(FFTSIZE)
 	
 	for k in range(logscale.size):
@@ -158,9 +159,37 @@ def tfplot(data, Fs = 44100, color = 'b', octbin = 100, avg = 'comp'):
 		elif avg == 'power':
 			logmagn[k] = np.sqrt(np.mean(np.abs(np.power(compamp[start-1:stop],2))))
 
-	# plotting
-	plt.semilogx(logscale, 20*np.log10(logmagn), color)
-	
+		logangle[k] = np.mean(np.angle(compamp[start - 1:stop]))
+	logangle = np.unwrap(logangle)
+
+	# plotting mag
+	axMag.semilogx(logscale, 20*np.log10(logmagn), **plt_params_dict)
+	axMag.set_xlim([20, 20000])
+	#axMag.set_ylim([-80, 80])
+	axMag.set_ylabel('Amplitude (dB)')
+	axMag.set_xlabel('Frequency (Hz)')
+	axMag.grid(True)
+	axMag.legend()
+
+	if axPhase is not None:
+		# plotting phase
+		axPhase.semilogx(logscale, logangle, **plt_params_dict)
+		axPhase.set_xlim([20, 20000])
+		axPhase.set_ylabel('Phase (rad)')
+		axPhase.set_xlabel('Frequency (Hz)')
+		axPhase.grid(True)
+		axPhase.legend()
+
+	if axGrpDly is not None:
+		# plotting group-delay
+		axGrpDly.semilogx(logscale[1:], 1000.0*(-np.diff(logangle)/np.diff(2*np.pi*logscale)), **plt_params_dict)
+		axGrpDly.set_xlim([20, 20000])
+		axGrpDly.set_ylabel('Group Delay (ms)')
+		axGrpDly.set_xlabel('Frequency (Hz)')
+		axGrpDly.grid(True)
+		axGrpDly.legend()
+
+
 def debug_log_plot(x, y):
 	fig = plt.figure()
 	plt.title("Digital filter frequency response")
@@ -172,20 +201,17 @@ def debug_log_plot(x, y):
 	plt.legend()
 	plt.show()
 
-def ir_compplot(data, h,  Fs = 44100):
-    t = np.arange(0, (1/Fs) * len(data), 1/Fs)
-    result = sp.signal.convolve(data, h)
-    result = result[:len(t)]
-
-    #RMS normalize
-    dataRMS = np.sqrt(np.sum(np.square(data)))
-    resultRMS = np.sqrt(np.sum(np.square(result)))
-
-    plt.plot(t, data/dataRMS, color='b')
-    plt.plot(t, result/resultRMS, color='r', alpha=0.5)
+def ir_compplot(irRaw, irMinPhase, irMixedPhase, Fs = 44100):
+    t = np.arange(0, (1/Fs) * len(irRaw), 1 / Fs)
+    irMinPhase = irMinPhase[:len(t)]
+    irMixedPhase = irMixedPhase[:len(t)]
+    plt.plot(t, irRaw, color='b', label='raw')
+    plt.plot(t, irMinPhase, color='g', alpha=0.5, label='minPhase')
+    plt.plot(t, irMixedPhase, color='r', alpha=0.5, label='mixedPhase')
     plt.grid()
     plt.margins(x=0)
     plt.xlabel('Time')
     plt.ylabel('IR')
     plt.title('Impulse Plot')
+    plt.legend(loc='upper right')
     plt.show()
