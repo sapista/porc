@@ -250,7 +250,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
 
   if opformat in ('wav', 'wav24'):
   # Write data
-    wavwrite_24(filter, Fs, norm(np.real(equalizer)))
+    wavwrite_24(filter, Fs, np.real(equalizer))
     print('\nOutput format is wav24')
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
@@ -264,12 +264,12 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     print("         sox -M le148.wav req48.wav output.wav\n")
 
   elif opformat == 'wav32':
-    wavwrite_32(filter, Fs, norm(np.real(equalizer)))
+    wavwrite_32(filter, Fs, np.real(equalizer))
     print('\nOutput format is wav32')
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
 
-    wavwrite_32(imprespout, Fs, norm(np.real(imprespoutmixed)))
+    wavwrite_32(imprespout, Fs, np.real(imprespoutmixed))
     print('Output IR written to ' + imprespout)
 
     print("\nUse sox to convert output .wav to raw 32 bit IEEE floating point if necessary,")
@@ -278,7 +278,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     print("         sox -M le148.wav req48.wav output.wav\n")
 
   elif opformat == 'wavfloat':
-    wavwrite_float(filter, Fs, norm(np.real(equalizer)))
+    wavwrite_float(filter, Fs, np.real(equalizer))
     print('\nOutput format is wav32')
     print('Output filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
@@ -294,7 +294,7 @@ def roomcomp(impresp, filter, imprespout, target, ntaps, mixed_phase, opformat, 
     # direct output to bin avoids float64->pcm16->float32 conversion by going direct
     #float64->float32
     f = open(filter, 'wb')
-    norm(np.real(equalizer)).astype('float32').tofile(f)
+    np.real(equalizer).astype('float32').tofile(f)
     f.close()
     print('\nOutput filter length =', len(equalizer), 'taps')
     print('Output filter written to ' + filter)
